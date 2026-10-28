@@ -65,16 +65,28 @@ export default ({ strapi, adapter, config }) => {
 
   return {
     /**
+     * Get index uids from Meilisearch.
+     *
+     * Unlike `getIndexUids`, this throws when Meilisearch cannot be reached, so
+     * callers can tell an unreachable instance apart from one without indexes.
+     *
+     * @returns { Promise<string[]> }
+     */
+    fetchIndexUids: async function () {
+      const { apiKey, host } = await store.getCredentials()
+      const client = Meilisearch({ apiKey, host })
+      const { indexes } = await client.getStats()
+      return Object.keys(indexes)
+    },
+
+    /**
      * Get index uids with a safe guard in case of error.
      *
-     * @returns { Promise<import("meilisearch").Index[]> }
+     * @returns { Promise<string[]> }
      */
     getIndexUids: async function () {
       try {
-        const { apiKey, host } = await store.getCredentials()
-        const client = Meilisearch({ apiKey, host })
-        const { indexes } = await client.getStats()
-        return Object.keys(indexes)
+        return await this.fetchIndexUids()
       } catch (e) {
         strapi.log.error(`meilisearch: ${e.message}`)
         return []
@@ -325,7 +337,14 @@ export default ({ strapi, adapter, config }) => {
      * }>}>} - List of contentTypes reports.
      */
     getContentTypesReport: async function () {
-      const indexUids = await this.getIndexUids()
+      let indexUids = []
+      let meilisearchReachable = true
+      try {
+        indexUids = await this.fetchIndexUids()
+      } catch (e) {
+        strapi.log.error(`meilisearch: ${e.message}`)
+        meilisearchReachable = false
+      }
 
       // All listened contentTypes
       const listenedContentTypes = await store.getListenedContentTypes()
@@ -349,8 +368,14 @@ export default ({ strapi, adapter, config }) => {
                 indexedContentTypes.includes(contentType)
               const indexed = indexInMeiliSearch && contentTypeInIndexStore
 
-              // safe guard in case index does not exist anymore in Meilisearch
-              if (!indexInMeiliSearch && contentTypeInIndexStore) {
+              // safe guard in case index does not exist anymore in Meilisearch.
+              // Only trust a missing index if Meilisearch actually answered:
+              // an unreachable instance must not unselect the collection.
+              if (
+                meilisearchReachable &&
+                !indexInMeiliSearch &&
+                contentTypeInIndexStore
+              ) {
                 await store.removeIndexedContentType({ contentType })
               }
 
