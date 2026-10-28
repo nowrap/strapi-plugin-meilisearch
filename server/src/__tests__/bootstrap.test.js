@@ -18,6 +18,15 @@ function createBootstrapStrapi({ fetchIndexUids, indexedContentTypes }) {
   const lifecycle = { subscribeContentType: jest.fn() }
   const meilisearch = {
     fetchIndexUids: jest.fn(fetchIndexUids),
+    // Same contract as the real service: swallow errors and return []. Lets the
+    // tests run against code that still calls `getIndexUids`.
+    getIndexUids: jest.fn(async () => {
+      try {
+        return await fetchIndexUids()
+      } catch {
+        return []
+      }
+    }),
     getIndexNamesOfContentType: jest.fn(({ contentType }) => [
       contentType.split('.').pop(),
     ]),

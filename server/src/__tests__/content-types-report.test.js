@@ -53,13 +53,54 @@ describe('Content types report and Meilisearch availability', () => {
     const reports = await meilisearchService.getContentTypesReport()
 
     expect(store.removeIndexedContentType).not.toHaveBeenCalled()
+    // The stored selection is reported as is, flagged as unverified.
     expect(reports.contentTypes[0]).toMatchObject({
       contentType: 'api::restaurant.restaurant',
       indexUid: 'restaurant',
-      indexed: false,
+      indexed: true,
       listened: true,
       numberOfEntries: 2,
+      meilisearchReachable: false,
     })
+  })
+
+  test('reports the real index state when Meilisearch is reachable', async () => {
+    const { strapi } = createReportStrapi()
+    // @ts-ignore
+    global.strapi = strapi
+    // @ts-ignore
+    Meilisearch.mockImplementation(() => ({
+      getStats: jest.fn(async () => ({ indexes: { restaurant: {} } })),
+      index: jest.fn(() => ({
+        getStats: jest.fn(async () => ({
+          numberOfDocuments: 2,
+          isIndexing: false,
+        })),
+      })),
+    }))
+
+    const meilisearchService = createMeilisearchService({ strapi })
+    const reports = await meilisearchService.getContentTypesReport()
+
+    expect(reports.contentTypes[0]).toMatchObject({
+      indexed: true,
+      numberOfDocuments: 2,
+      meilisearchReachable: true,
+    })
+  })
+
+  test('getIndexUids works when called without its service object', async () => {
+    const { strapi } = createReportStrapi()
+    // @ts-ignore
+    global.strapi = strapi
+    // @ts-ignore
+    Meilisearch.mockImplementation(() => ({
+      getStats: jest.fn(async () => ({ indexes: { restaurant: {} } })),
+    }))
+
+    const { getIndexUids } = createMeilisearchService({ strapi })
+
+    await expect(getIndexUids()).resolves.toEqual(['restaurant'])
   })
 
   test('still unselects a collection whose index is really missing in Meilisearch', async () => {
